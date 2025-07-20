@@ -43,7 +43,7 @@ export default function LandingPage() {
             }
             const data = await response.json();
             setProtocolHealth(data);
-        } catch (err) {
+        } catch (err)
             setError(err.message);
             console.error(err);
         } finally {
@@ -56,8 +56,8 @@ export default function LandingPage() {
     }, [fetchProtocolHealth]);
 
     const handleConnectWallet = () => {
-        console.log("Attempting to connect wallet...");
-        alert("Wallet connection logic would be triggered here.");
+        // This will be handled by the login/register flow which leads to the dashboard
+        setShowLogin(true);
     };
 
     const handleAuthAction = async (endpoint, email, password) => {
@@ -75,7 +75,6 @@ export default function LandingPage() {
             console.log('Success:', data);
             localStorage.setItem('authToken', data.access_token);
             
-            // --- NEW: Decode token and redirect based on role ---
             const decodedToken = parseJwt(data.access_token);
             if (decodedToken && decodedToken.role === 'admin') {
                 window.location.href = '/admin';
@@ -134,15 +133,16 @@ const HeroSection = ({ onConnectWallet }) => (
             A Decentralized Stablecoin, <br />
             <span className="text-blue-500">Secured by Your Assets.</span>
         </h1>
+        {/* FIX: Updated text to be accurate about testnet status */}
         <p className="max-w-2xl mx-auto mt-6 text-lg text-gray-300">
-            Mint the tGHSX stablecoin by depositing collateral. Experience capital efficiency with our robust and secure protocol.
+            Mint the tGHSX stablecoin by depositing collateral. Explore capital efficiency with our transparent protocol, currently live on the Amoy testnet.
         </p>
         <div className="mt-10">
             <button
                 onClick={onConnectWallet}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg text-lg transition-transform transform hover:scale-105"
             >
-                Connect Wallet & Launch App
+                Launch App
             </button>
         </div>
     </section>
@@ -197,13 +197,14 @@ const FeaturesSection = () => (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
                 <h2 className="text-3xl sm:text-4xl font-bold">Why Choose tGHSX?</h2>
-                <p className="max-w-2xl mx-auto mt-4 text-gray-400">Our protocol is built on three core principles: security, efficiency, and user-empowerment.</p>
+                <p className="max-w-2xl mx-auto mt-4 text-gray-400">Our protocol is built on transparency, efficiency, and user-empowerment.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* FIX: Updated feature card to be accurate */}
                 <FeatureCard
-                    icon={<Lock />}
-                    title="Robust Security"
-                    description="Audited smart contracts and real-time risk management protect your assets around the clock."
+                    icon={<AlertTriangle />}
+                    title="Public Testnet"
+                    description="Our smart contracts are publicly deployed on the Amoy testnet. We encourage community review and feedback during this experimental phase."
                 />
                 <FeatureCard
                     icon={<Wind />}
