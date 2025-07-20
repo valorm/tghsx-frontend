@@ -43,7 +43,7 @@ export default function LandingPage() {
             }
             const data = await response.json();
             setProtocolHealth(data);
-        } catch (err)
+        } catch (err) { // FIX: Added missing opening brace
             setError(err.message);
             console.error(err);
         } finally {
