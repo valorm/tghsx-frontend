@@ -65,16 +65,6 @@ export default function App() {
     const [collaterals, setCollaterals] = useState([]);
     const [selectedCollateral, setSelectedCollateral] = useState(null);
 
-    // FIX: Add comprehensive logging to track component state
-    console.log("--- Dashboard Render Cycle ---");
-    console.log(`Is Loading: ${isLoading}`);
-    console.log(`Error State: ${error}`);
-    console.log(`Auth Token Present: ${!!authToken}`);
-    console.log(`Wallet Connected: ${walletAddress}`);
-    console.log(`Selected Collateral: ${selectedCollateral ? selectedCollateral.symbol : 'None'}`);
-    console.log("--------------------------");
-
-
     const connectWallet = useCallback(async () => {
         if (typeof window.ethereum !== 'undefined') {
             try {
@@ -84,13 +74,11 @@ export default function App() {
                 const address = await signer.getAddress();
                 setProvider(web3Provider);
                 setWalletAddress(address);
-                 console.log("Wallet connected:", address);
             } catch (err) {
                 console.error("Wallet connection error:", err);
                 setError("Wallet connection failed. Please try again.");
             }
         } else {
-             console.error("MetaMask is not installed.");
             setError("MetaMask is not installed. Please install it to use this app.");
         }
     }, []);
@@ -99,23 +87,18 @@ export default function App() {
 
     useEffect(() => {
         const fetchCollaterals = async () => {
-            console.log("Fetching collateral types...");
             try {
                 const response = await fetch(`${API_BASE_URL}/protocol/collaterals`);
                 if (!response.ok) throw new Error("Failed to fetch collateral types.");
                 const data = await response.json();
-                console.log("Collaterals fetched:", data);
                 setCollaterals(data);
                 if (data.length > 0) {
                     const usdc = data.find(c => c.symbol === 'USDC');
                     setSelectedCollateral(usdc || data[0]);
-                     console.log("Default collateral set to:", usdc || data[0]);
                 } else {
-                    console.warn("No enabled collaterals found from API.");
                     setIsLoading(false);
                 }
             } catch (err) {
-                console.error("Error fetching collaterals:", err);
                 setError(err.message);
                 setIsLoading(false);
             }
@@ -125,13 +108,8 @@ export default function App() {
 
     const fetchData = useCallback(async () => {
         if (!authToken || !walletAddress || !selectedCollateral) {
-            console.warn("FetchData skipped: Missing auth, wallet, or selected collateral.");
-            // If these are missing after initial load, stop loading.
-            if(!isLoading) setIsLoading(false);
             return;
         }
-
-        console.log(`Fetching all dashboard data for ${selectedCollateral.symbol}...`);
         setIsLoading(true);
         setError(null);
         try {
@@ -148,36 +126,24 @@ export default function App() {
                 throw new Error('Failed to fetch dashboard data. Your session might have expired.');
             }
             
-            console.log("All API calls successful. Parsing data...");
-
-            const positionJson = await vaultRes.json();
-            const mintStatusJson = await mintStatusRes.json();
-            const oraclePriceJson = await oracleRes.json();
-            const transactionsJson = await transactionsRes.json();
-            const protocolHealthJson = await protocolHealthRes.json();
-
-            setPositionData(positionJson);
-            setMintStatus(mintStatusJson);
-            setOraclePrice(oraclePriceJson);
-            setTransactions(transactionsJson);
-            setProtocolHealth(protocolHealthJson);
-            
-            console.log("Dashboard data state updated.");
+            setPositionData(await vaultRes.json());
+            setMintStatus(await mintStatusRes.json());
+            setOraclePrice(await oracleRes.json());
+            setTransactions(await transactionsRes.json());
+            setProtocolHealth(await protocolHealthRes.json());
             setLastRefreshed(new Date());
         } catch (err) {
-            console.error("Error in fetchData:", err);
             setError(err.message);
         } finally {
-            console.log("Fetch process finished, setting isLoading to false.");
             setIsLoading(false);
         }
     }, [authToken, walletAddress, selectedCollateral]);
 
     useEffect(() => {
-        if (selectedCollateral) {
+        if (selectedCollateral && walletAddress) {
             fetchData();
         }
-    }, [selectedCollateral, fetchData]);
+    }, [selectedCollateral, walletAddress, fetchData]);
 
     const handleAction = (actionType) => setActiveModal(actionType);
     const closeModal = () => setActiveModal(null);
@@ -194,11 +160,7 @@ export default function App() {
     if (!authToken) return <AuthWall message="Please log in to view the dashboard." />;
     if (!walletAddress) return <AuthWall message="Please connect your wallet to continue." onAction={connectWallet} actionText="Connect Wallet" />;
     
-    // FIX: Refined loading and error display logic
-    if (isLoading) return <LoadingSpinner />;
-    if (error) return <ErrorMessage message={error} onRetry={fetchData} />;
-    if (!selectedCollateral || !positionData) return <div className="text-center p-8">No collateral data available.</div>;
-
+    // FIX: Main component return structure
     return (
         <div className="bg-gray-900 text-white min-h-screen font-sans flex flex-col">
             <Header walletAddress={walletAddress} onLogout={handleLogout} />
@@ -220,16 +182,24 @@ export default function App() {
                     </div>
                 </div>
 
-                <DashboardView
-                    positionData={positionData}
-                    mintStatus={mintStatus}
-                    oraclePrice={oraclePrice}
-                    transactions={transactions}
-                    protocolHealth={protocolHealth}
-                    onAction={handleAction}
-                    parsedRatio={parsedRatio}
-                    selectedCollateral={selectedCollateral}
-                />
+                {isLoading ? (
+                    <LoadingSpinner />
+                ) : error ? (
+                    <ErrorMessage message={error} onRetry={fetchData} />
+                ) : !selectedCollateral || !positionData ? (
+                     <div className="text-center p-8 text-gray-400">No collateral data available or selected.</div>
+                ) : (
+                    <DashboardView
+                        positionData={positionData}
+                        mintStatus={mintStatus}
+                        oraclePrice={oraclePrice}
+                        transactions={transactions}
+                        protocolHealth={protocolHealth}
+                        onAction={handleAction}
+                        parsedRatio={parsedRatio}
+                        selectedCollateral={selectedCollateral}
+                    />
+                )}
             </main>
             <Footer />
             {activeModal && <ActionModal modalType={activeModal} collateral={selectedCollateral} onClose={closeModal} provider={provider} onSuccess={fetchData} />}
@@ -238,11 +208,110 @@ export default function App() {
 }
 
 // --- Sub-Components ---
-const Header = ({ walletAddress, onLogout }) => { /* ... existing code ... */ };
-const Footer = () => { /* ... existing code ... */ };
-const CollateralSelector = ({ collaterals, selected, onSelect }) => { /* ... existing code ... */ };
-const DashboardView = ({ positionData, mintStatus, oraclePrice, transactions, protocolHealth, onAction, parsedRatio, selectedCollateral }) => { /* ... existing code ... */ };
-const VaultOverviewCard = ({ collateralValueUSD, mintedAmount, collateralRatio, isLiquidatable, onAction, parsedRatio, selectedCollateral }) => { /* ... existing code ... */ };
+
+const Header = ({ walletAddress, onLogout }) => (
+    <header className="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-40 border-b border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+                <div className="flex items-center">
+                    <Droplet className="h-8 w-8 text-blue-500" />
+                    <span className="ml-3 text-xl font-bold text-white">tGHSX Protocol</span>
+                </div>
+                <div className="flex items-center space-x-4">
+                    <div className="bg-gray-800 px-4 py-2 rounded-md text-sm font-mono text-gray-300">
+                        {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : 'Not Connected'}
+                    </div>
+                    <button onClick={onLogout} className="p-2 rounded-md hover:bg-gray-700 transition-colors">
+                        <LogOut className="h-5 w-5 text-gray-400" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+);
+
+const Footer = () => (
+    <footer className="py-6 border-t border-gray-800 mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-400">
+            <div className="flex justify-center space-x-6 mb-4">
+                <a href="https://github.com/valorm/tghsx" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Github /></a>
+                <a href="https://t.me/tghsstablecoin" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Send /></a>
+                <a href="https://discord.com/invite/NPtrctnJhu" target="_blank" rel="noopener noreferrer" className="hover:text-white"><MessageSquare /></a>
+                <a href="https://x.com/tokenGHC" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Twitter /></a>
+            </div>
+            <div className="text-xs space-x-4">
+                 <a href="https://amoy.polygonscan.com/address/0xb04093d34F5feC6DE685B8684F3e2086dd866a50#code" target="_blank" rel="noopener noreferrer" className="hover:text-white">TGHSXToken Contract</a>
+                 <span className="text-gray-600">|</span>
+                 <a href="https://amoy.polygonscan.com/address/0xF681Ba510d3C93A49a7AB2d02d9697BB2B0091FE#code" target="_blank" rel="noopener noreferrer" className="hover:text-white">CollateralVault Contract</a>
+            </div>
+        </div>
+    </footer>
+);
+
+const CollateralSelector = ({ collaterals, selected, onSelect }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    if (collaterals.length === 0) return null;
+    return (
+        <div className="relative">
+            <button onClick={() => setIsOpen(!isOpen)} className="flex items-center justify-between w-40 px-4 py-2 bg-gray-800 border border-gray-700 rounded-md text-white text-sm font-medium">
+                <span>{selected?.symbol || 'Select...'}</span>
+                <ChevronsUpDown className="w-4 h-4 ml-2 text-gray-400" />
+            </button>
+            {isOpen && (
+                <div className="absolute z-10 mt-1 w-40 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
+                    <ul className="py-1">
+                        {collaterals.map(c => (
+                            <li key={c.address} onClick={() => { onSelect(c); setIsOpen(false); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer">
+                                {c.name} ({c.symbol})
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const DashboardView = ({ positionData, mintStatus, oraclePrice, transactions, protocolHealth, onAction, parsedRatio, selectedCollateral }) => (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+            <VaultOverviewCard {...positionData} onAction={onAction} parsedRatio={parsedRatio} selectedCollateral={selectedCollateral} />
+            <ProtocolHealthCard {...protocolHealth} />
+        </div>
+        <div className="space-y-6">
+            <MintStatusCard {...mintStatus} />
+            <OraclePriceCard {...oraclePrice} />
+            <TransactionHistory transactions={transactions?.transactions} />
+        </div>
+    </div>
+);
+
+const VaultOverviewCard = ({ collateralValueUSD, mintedAmount, collateralRatio, isLiquidatable, onAction, parsedRatio, selectedCollateral }) => (
+    <Card>
+        <CardHeader>
+            <h2 className="text-xl font-semibold">📊 Your {selectedCollateral?.symbol} Vault</h2>
+            {isLiquidatable && <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded-full">At Risk</span>}
+        </CardHeader>
+        <div className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+                <InfoBox icon={<DollarSign />} title="Collateral Value" value={formatCurrency(collateralValueUSD)} />
+                <InfoBox icon={<Droplet />} title="Minted tGHSX" value={formatNumber(mintedAmount)} />
+                <InfoBox icon={<Shield />} title="Collateral Ratio" value={`${collateralRatio}%`} valueColor={getHealthColor(parsedRatio)} />
+            </div>
+            <div className="mt-8">
+                <h3 className="text-lg font-medium text-gray-300 mb-4 text-center">⚡ Quick Actions</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <ActionButton onClick={() => onAction('deposit')}>Deposit</ActionButton>
+                    <ActionButton onClick={() => onAction('withdraw')}>Withdraw</ActionButton>
+                    <ActionButton onClick={() => onAction('mint')}>Mint</ActionButton>
+                    <ActionButton onClick={() => onAction('repay')}>Repay</ActionButton>
+                    <ActionButton onClick={() => onAction('auto-mint')} className="bg-purple-600 hover:bg-purple-700 col-span-2 sm:col-span-1">Auto-Mint</ActionButton>
+                </div>
+            </div>
+        </div>
+    </Card>
+);
+
 const ProtocolHealthCard = ({ totalValueLockedUSD, totalDebt, globalCollateralizationRatio }) => { /* ... existing code ... */ };
 const MintStatusCard = ({ dailyMinted, remainingDaily, cooldownRemaining }) => { /* ... existing code ... */ };
 const OraclePriceCard = ({ eth_usd_price, decimals }) => { /* ... existing code ... */ };
