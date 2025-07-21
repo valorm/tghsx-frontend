@@ -6,7 +6,6 @@ import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.es
 // --- LIVE API & WEB3 CONFIG ---
 const API_BASE_URL = 'https://tghsx.onrender.com'; 
 const VAULT_ADDRESS = '0xF681Ba510d3C93A49a7AB2d02d9697BB2B0091FE';
-// FIX: Using the USDC address from your deployment script.
 const USDC_ADDRESS = '0xAC2f1680f2705d3Dd314534Bf24b424ccBC8D8f5'; 
 
 // --- SMART CONTRACT ABIs ---
@@ -268,7 +267,6 @@ const DashboardView = ({ vaultOverview, mintStatus, oraclePrice, transactions, p
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
             <VaultOverviewCard {...vaultOverview} onAction={onAction} parsedRatio={parsedRatio} />
-            {/* FIX: Pass the onAction prop to ProtocolHealthCard */}
             <ProtocolHealthCard {...protocolHealth} onAction={onAction} />
         </div>
         <div className="space-y-6">
@@ -305,7 +303,6 @@ const VaultOverviewCard = ({ collateralValueUSD, mintedAmount, collateralRatio, 
     </Card>
 );
 
-// FIX: Update ProtocolHealthCard to accept the onAction prop
 const ProtocolHealthCard = ({ totalValueLockedUSD, totalDebt, globalCollateralizationRatio, onAction }) => (
     <Card>
         <CardHeader>
@@ -494,8 +491,6 @@ const MintRepayForm = ({ type, onAction }) => {
 };
 
 
-// Replace the existing ActionModal component in your DashboardPage.js with this full version:
-
 const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
     const [amount, setAmount] = useState('');
     const [status, setStatus] = useState({ loading: false, error: null, success: null });
@@ -518,6 +513,8 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
             setStatus({ loading: false, error: "Please enter a valid amount greater than zero.", success: null });
             return;
         }
+        
+        setStatus({ loading: true, error: null, success: "Preparing transaction..." });
 
         try {
             const signer = provider.getSigner();
@@ -575,8 +572,18 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
 
         } catch (err) {
             console.error("Transaction failed:", err);
-            const fallbackMessage = err?.reason || err?.data?.message || err?.message || "Transaction failed. See console.";
-            setStatus({ loading: false, error: fallbackMessage, success: null });
+            // FIX: Add specific error handling for PriceStale error
+            const errorMessage = err.data?.message || err.message || "An unknown error occurred.";
+            if (errorMessage.includes("PriceStale") || (err.data?.data && err.data.data.startsWith('0xe450d38c'))) {
+                 setStatus({ 
+                    loading: false, 
+                    error: "Transaction failed: The price for this asset is outdated. Please wait for the oracle to update and try again.", 
+                    success: null 
+                });
+            } else {
+                const fallbackMessage = err?.reason || errorMessage;
+                setStatus({ loading: false, error: `Transaction failed: ${fallbackMessage}`, success: null });
+            }
         }
     };
 
@@ -636,10 +643,6 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
         </div>
     );
 };
-
-
-
-
 
 // --- Utility Components ---
 
