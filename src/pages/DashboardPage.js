@@ -18,7 +18,8 @@ const VAULT_ABI = [
 ];
 const ERC20_ABI = [
     "function approve(address spender, uint256 amount) returns (bool)",
-    "function allowance(address owner, address spender) view returns (uint256)"
+    "function allowance(address owner, address spender) view returns (uint256)",
+    "function balanceOf(address account) view returns (uint256)"
 ];
 
 
@@ -519,23 +520,25 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
         try {
             const signer = provider.getSigner();
             const vaultContract = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, signer);
+            const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
             let tx;
 
-            // FIX: Ensure 'amount' is a string for parseUnits and handle potential errors
             const amountStr = String(amount || '0');
-            let parsedAmount;
-
-            // Determine decimals based on action type
-            // USDC and tGHSX use 6 decimals in this contract implementation
-            const decimals = 6;
-            parsedAmount = ethers.utils.parseUnits(amountStr, decimals);
+            const decimals = 6; // USDC and tGHSX use 6 decimals
+            const parsedAmount = ethers.utils.parseUnits(amountStr, decimals);
             
             console.log(`Action: ${modalType}, Amount: ${amountStr}, Parsed Amount (wei): ${parsedAmount.toString()}`);
 
-
+            // FIX: Implement pre-flight checks for balance and allowance on deposit/repay
+            if (modalType === 'deposit' || modalType === 'repay') {
+                const balance = await usdcContract.balanceOf(signer.getAddress());
+                if (balance.lt(parsedAmount)) {
+                    setStatus({ loading: false, error: `Insufficient USDC balance. You have ${ethers.utils.formatUnits(balance, decimals)} USDC.`, success: null });
+                    return;
+                }
+            }
+            
             if (modalType === 'deposit') {
-                const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
-                
                 setStatus({ loading: true, error: null, success: "Waiting for approval..." });
                 const approveTx = await usdcContract.approve(VAULT_ADDRESS, parsedAmount);
                 await approveTx.wait();
@@ -550,6 +553,11 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
                 tx = await vaultContract.mintTokens(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'repay') {
+                 setStatus({ loading: true, error: null, success: "Waiting for approval..." });
+                const approveTx = await usdcContract.approve(VAULT_ADDRESS, parsedAmount);
+                await approveTx.wait();
+                
+                setStatus({ loading: true, error: null, success: "Approval successful. Repaying debt..." });
                 tx = await vaultContract.burnTokens(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'auto-mint') {
@@ -569,7 +577,6 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
         } catch (err) {
             console.error("Transaction failed:", err);
             
-            // FIX: More robust error handling for gas estimation and custom contract errors
             let friendlyMessage = "An unknown error occurred. Please check the console.";
             const errorString = JSON.stringify(err);
 
