@@ -521,40 +521,36 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
             const vaultContract = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, signer);
             let tx;
 
+            // FIX: Ensure 'amount' is a string for parseUnits and handle potential errors
+            const amountStr = String(amount || '0');
+            let parsedAmount;
+
+            // Determine decimals based on action type
+            // USDC and tGHSX use 6 decimals in this contract implementation
+            const decimals = 6;
+            parsedAmount = ethers.utils.parseUnits(amountStr, decimals);
+            
+            console.log(`Action: ${modalType}, Amount: ${amountStr}, Parsed Amount (wei): ${parsedAmount.toString()}`);
+
+
             if (modalType === 'deposit') {
                 const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
-                const parsedAmountDeposit = ethers.utils.parseUnits(amount, 6);
-
-                console.log("Parsed deposit amount:", parsedAmountDeposit.toString());
-
+                
                 setStatus({ loading: true, error: null, success: "Waiting for approval..." });
-                const approveTx = await usdcContract.approve(VAULT_ADDRESS, parsedAmountDeposit);
+                const approveTx = await usdcContract.approve(VAULT_ADDRESS, parsedAmount);
                 await approveTx.wait();
 
                 setStatus({ loading: true, error: null, success: "Approval successful. Depositing..." });
-
-                try {
-                    const gasLimit = await vaultContract.estimateGas.depositCollateral(USDC_ADDRESS, parsedAmountDeposit);
-                    tx = await vaultContract.depositCollateral(USDC_ADDRESS, parsedAmountDeposit, { gasLimit });
-                } catch (gasErr) {
-                    console.warn("Gas estimation failed, submitting transaction without gas limit:", gasErr);
-                    tx = await vaultContract.depositCollateral(USDC_ADDRESS, parsedAmountDeposit);
-                }
+                tx = await vaultContract.depositCollateral(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'withdraw') {
-                const parsedAmountWithdraw = ethers.utils.parseUnits(amount, 6);
-                console.log("Parsed withdraw amount:", parsedAmountWithdraw.toString());
-                tx = await vaultContract.withdrawCollateral(USDC_ADDRESS, parsedAmountWithdraw);
+                tx = await vaultContract.withdrawCollateral(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'mint') {
-                const parsedAmountMint = ethers.utils.parseUnits(amount, 6);
-                console.log("Parsed mint amount:", parsedAmountMint.toString());
-                tx = await vaultContract.mintTokens(USDC_ADDRESS, parsedAmountMint);
+                tx = await vaultContract.mintTokens(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'repay') {
-                const parsedAmountRepay = ethers.utils.parseUnits(amount, 6);
-                console.log("Parsed repay amount:", parsedAmountRepay.toString());
-                tx = await vaultContract.burnTokens(USDC_ADDRESS, parsedAmountRepay);
+                tx = await vaultContract.burnTokens(USDC_ADDRESS, parsedAmount);
 
             } else if (modalType === 'auto-mint') {
                 tx = await vaultContract.autoMint(USDC_ADDRESS);
@@ -572,18 +568,28 @@ const ActionModal = ({ modalType, onClose, provider, onSuccess }) => {
 
         } catch (err) {
             console.error("Transaction failed:", err);
-            // FIX: Add specific error handling for PriceStale error
-            const errorMessage = err.data?.message || err.message || "An unknown error occurred.";
-            if (errorMessage.includes("PriceStale") || (err.data?.data && err.data.data.startsWith('0xe450d38c'))) {
-                 setStatus({ 
-                    loading: false, 
-                    error: "Transaction failed: The price for this asset is outdated. Please wait for the oracle to update and try again.", 
-                    success: null 
-                });
-            } else {
-                const fallbackMessage = err?.reason || errorMessage;
-                setStatus({ loading: false, error: `Transaction failed: ${fallbackMessage}`, success: null });
+            
+            // FIX: More robust error handling for gas estimation and custom contract errors
+            let friendlyMessage = "An unknown error occurred. Please check the console.";
+            const errorString = JSON.stringify(err);
+
+            if (err.code === 'UNPREDICTABLE_GAS_LIMIT' || err.code === -32603 || err.code === 'CALL_EXCEPTION') {
+                 if (errorString.includes('0xe450d38c')) { // PriceStale custom error signature
+                    friendlyMessage = "Transaction failed: The oracle price for this asset is outdated. Please wait for the price to update and try again.";
+                } else {
+                    friendlyMessage = "Cannot estimate gas. The transaction is likely to fail. This could be due to insufficient funds, an on-chain issue like stale prices, or another contract error.";
+                }
+            } else if (err.reason) {
+                friendlyMessage = `Transaction failed: ${err.reason}`;
+            } else if (errorString.includes("PriceStale")) {
+                 friendlyMessage = "Transaction failed: The oracle price for this asset is outdated.";
             }
+
+            setStatus({ 
+                loading: false, 
+                error: friendlyMessage, 
+                success: null 
+            });
         }
     };
 
