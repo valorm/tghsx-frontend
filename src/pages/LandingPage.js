@@ -43,7 +43,7 @@ export default function LandingPage() {
             }
             const data = await response.json();
             setProtocolHealth(data);
-        } catch (err) { // FIX: Added missing opening brace
+        } catch (err) {
             setError(err.message);
             console.error(err);
         } finally {
@@ -56,7 +56,6 @@ export default function LandingPage() {
     }, [fetchProtocolHealth]);
 
     const handleConnectWallet = () => {
-        // This will be handled by the login/register flow which leads to the dashboard
         setShowLogin(true);
     };
 
@@ -69,6 +68,10 @@ export default function LandingPage() {
             });
             const data = await response.json();
             if (!response.ok) {
+                // Throw a more specific error for 404
+                if (response.status === 404) {
+                    throw new Error('Login service not found. The API may be deploying or misconfigured.');
+                }
                 throw new Error(data.detail || 'An error occurred.');
             }
             
@@ -133,7 +136,6 @@ const HeroSection = ({ onConnectWallet }) => (
             A Decentralized Stablecoin, <br />
             <span className="text-blue-500">Secured by Your Assets.</span>
         </h1>
-        {/* FIX: Updated text to be accurate about testnet status */}
         <p className="max-w-2xl mx-auto mt-6 text-lg text-gray-300">
             Mint the tGHSX stablecoin by depositing collateral. Explore capital efficiency with our transparent protocol, currently live on the Amoy testnet.
         </p>
@@ -178,14 +180,23 @@ const StatsBar = ({ healthData, isLoading, error }) => (
     </section>
 );
 
+// FIX: Improved StatBox to show a meaningful error message
 const StatBox = ({ icon, label, value, isLoading, error }) => (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center group relative">
         <div className="text-blue-400 mb-2">{React.cloneElement(icon, { className: "w-8 h-8" })}</div>
         <p className="text-sm text-gray-400 uppercase tracking-wider">{label}</p>
         {isLoading ? (
             <div className="h-9 w-24 bg-gray-700/50 rounded-md animate-pulse mt-1"></div>
         ) : error ? (
-            <p className="text-2xl font-bold text-red-500">-</p>
+            <>
+                <p className="text-2xl font-bold text-amber-400 flex items-center">
+                    <AlertTriangle className="w-6 h-6 mr-2" />
+                    Stale
+                </p>
+                <div className="absolute bottom-full mb-2 w-max max-w-xs px-3 py-2 bg-gray-800 border border-gray-700 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    {error}
+                </div>
+            </>
         ) : (
             <p className="text-3xl font-bold text-white">{value}</p>
         )}
@@ -200,7 +211,6 @@ const FeaturesSection = () => (
                 <p className="max-w-2xl mx-auto mt-4 text-gray-400">Our protocol is built on transparency, efficiency, and user-empowerment.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* FIX: Updated feature card to be accurate */}
                 <FeatureCard
                     icon={<AlertTriangle />}
                     title="Public Testnet"
