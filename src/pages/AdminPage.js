@@ -3,7 +3,274 @@ import { Shield, ShieldCheck, ShieldOff, Zap, Settings, AlertTriangle, FileText,
 import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.esm.js";
 
 // --- LIVE API & CONFIG ---
-const API_BASE_URL = 'https://tghsx.onrender.com'; 
+const API_BASE_URL = 'https://tghsx.o// AdminPage.js
+import React, { useState, useEffect, useCallback } from 'react';
+import { Shield, ShieldCheck, ShieldOff, Zap, Settings, AlertTriangle, FileText, CheckCircle, XCircle, LogOut, RefreshCw, Power, Play, Github, Twitter, Send, MessageSquare } from 'lucide-react';
+import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.esm.js";
+
+// --- LIVE API & CONFIG ---
+const API_BASE_URL = 'https://tghsx.onrender.com';
+const AMOY_CHAIN_ID = '0x13882'; // 80002 in hex
+
+// --- Helper Functions ---
+const formatCurrency = (value, decimals = 2) => {
+  const number = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(number)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', minimumFractionDigits: decimals, maximumFractionDigits: decimals
+  }).format(number);
+};
+const formatNumber = (value) => {
+  const number = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(number)) return '0';
+  return number.toLocaleString();
+};
+
+// --- Main Admin Component ---
+export default function AdminPage() {
+  const [view, setView] = useState('dashboard');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const [activeModal, setActiveModal] = useState(null);
+
+  const [authToken, setAuthToken] = useState(localStorage.getItem('authToken'));
+  const [walletAddress, setWalletAddress] = useState(null);
+  const [provider, setProvider] = useState(null);
+
+  const [protocolStatus, setProtocolStatus] = useState(null);
+  const [protocolHealth, setProtocolHealth] = useState(null);
+  const [autoMintConfig, setAutoMintConfig] = useState(null);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [atRiskVaults, setAtRiskVaults] = useState([]);
+
+  const connectWallet = useCallback(async () => {
+    if (!window.ethereum) { setError('Install MetaMask.'); return; }
+    try {
+      const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+      const network = await web3Provider.getNetwork();
+      if (network.chainId !== 80002) {
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: AMOY_CHAIN_ID }] });
+      }
+      await web3Provider.send('eth_requestAccounts', []);
+      const signer = web3Provider.getSigner();
+      setWalletAddress(await signer.getAddress());
+      setProvider(web3Provider);
+    } catch (e) {
+      console.error(e);
+      setError('Wallet connection failed.');
+    }
+  }, []);
+  useEffect(() => { connectWallet(); }, [connectWallet]);
+
+  const fetchData = useCallback(async () => {
+    if (!authToken) return;
+    setIsLoading(true); setError(null);
+    try {
+      const headers = { Authorization: `Bearer ${authToken}` };
+      const [statusRes, healthRes, autoRes, liquidRes, pendingRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/admin/status`, { headers }),
+        fetch(`${API_BASE_URL}/protocol/health`),
+        fetch(`${API_BASE_URL}/admin/automint-config`, { headers }),
+        fetch(`${API_BASE_URL}/liquidations/at-risk`, { headers }),
+        fetch(`${API_BASE_URL}/admin/pending-requests`, { headers }),
+      ]);
+      if (![statusRes, healthRes, autoRes, liquidRes, pendingRes].every(r=>r.ok)) throw new Error('Fetch error');
+      setProtocolStatus(await statusRes.json());
+      setProtocolHealth(await healthRes.json());
+      setAutoMintConfig(await autoRes.json());
+      setAtRiskVaults(await liquidRes.json());
+      setPendingRequests(await pendingRes.json());
+      setLastRefreshed(new Date());
+    } catch (e) {
+      console.error(e);
+      setError(e.message);
+    } finally { setIsLoading(false); }
+  }, [authToken]);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleAdminAction = async (action, payload) => {
+    if (!window.confirm(`Confirm ${action.replace('-', ' ')}?`)) return;
+    const headers = { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' };
+    let endpoint = '', method = 'POST', body = payload?JSON.stringify(payload):null;
+    switch(action) {
+      case 'pause-protocol': endpoint='/admin/pause'; break;
+      case 'resume-protocol': endpoint='/admin/unpause'; break;
+      case 'update-automint-config': endpoint='/admin/update-automint-config'; break;
+      case 'toggle-automint': endpoint=`/admin/toggle-automint?enabled=${payload.enabled}`; body=null; break;
+      default: alert('Not implemented'); return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}${endpoint}`, { method, headers, body });
+      const result = await res.json(); if(!res.ok) throw new Error(result.detail||'Action failed');
+      alert(`Success: ${result.message}. Tx: ${result.transactionHash}`);
+      fetchData();
+    } catch(e) { console.error(e); alert(e.message); }
+  };
+
+  const handleLogout = () => { localStorage.removeItem('authToken'); setAuthToken(null); window.location.href='/'; };
+
+  if (!authToken) return <AuthWall message="Login required." />;
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage message={error} onRetry={fetchData} />;
+
+  return (
+    <div className="bg-gray-900 text-white min-h-screen flex flex-col">
+      <AdminHeader walletAddress={walletAddress} onLogout={handleLogout}/>
+      <main className="flex-grow p-6 max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold flex items-center"><ShieldCheck className="mr-2 text-blue-500"/>Admin Panel</h1>
+          <button onClick={fetchData} className="text-gray-400 hover:text-white flex items-center"><RefreshCw className="mr-2"/>{lastRefreshed.toLocaleTimeString()}</button>
+        </div>
+        <div className="grid lg:grid-cols-4 gap-6">
+          <nav className="space-y-2">
+            <AdminNavButton text="Dashboard" icon={<Settings/>} active={view==='dashboard'} onClick={()=>setView('dashboard')} />
+            <AdminNavButton text="Pending" icon={<FileText/>} active={view==='requests'} badge={pendingRequests.length} onClick={()=>setView('requests')}/>
+            <AdminNavButton text="At-Risk" icon={<AlertTriangle/>} active={view==='liquidations'} badge={atRiskVaults.length} onClick={()=>setView('liquidations')}/>
+          </nav>
+          <div className="lg:col-span-3">
+            {view==='dashboard' && <DashboardView status={protocolStatus} health={protocolHealth} config={autoMintConfig} onAction={handleAdminAction} onConfig={()=>setActiveModal('autoMintConfig')} />}
+            {view==='requests' && <PendingRequestsView requests={pendingRequests} onAction={handleAdminAction}/>}            
+            {view==='liquidations'&&<AtRiskVaultsView vaults={atRiskVaults} onAction={handleAdminAction}/>}          
+          </div>
+        </div>
+      </main>
+      <Footer />
+      {activeModal==='autoMintConfig' && <AutoMintConfigModal config={autoMintConfig} onClose={()=>setActiveModal(null)} onSave={(c)=>{handleAdminAction('update-automint-config',c);setActiveModal(null);}}/>}
+    </div>
+  );
+}
+
+// --- Sub-Components ---
+
+const AdminHeader = ({walletAddress,onLogout}) => (
+  <header className="bg-gray-900/80 sticky top-0 border-b border-gray-700">
+    <div className="max-w-7xl mx-auto flex justify-between items-center p-4">
+      <div className="flex items-center"><ShieldCheck className="h-8 w-8 text-blue-500"/><span className="ml-2 font-bold text-xl">tGHSX Admin</span></div>
+      <div className="flex items-center space-x-4">
+        <div className="bg-gray-800 px-3 py-1 rounded font-mono">{walletAddress?.slice(0,6)}...{walletAddress?.slice(-4)}</div>
+        <button onClick={onLogout} className="p-2 hover:bg-gray-700"><LogOut className="w-5 h-5 text-gray-400"/></button>
+      </div>
+    </div>
+  </header>
+);
+
+const Footer = () => (
+  <footer className="py-6 border-t border-gray-800 text-center text-gray-400">
+    <div className="flex justify-center space-x-4 mb-4">
+      <a href="#"><Github/></a><a href="#"><Send/></a><a href="#"><MessageSquare/></a><a href="#"><Twitter/></a>
+    </div>
+    <div className="text-xs">&copy; 2025 tGHSX Protocol</div>
+  </footer>
+);
+
+const AdminNavButton = ({text,icon,active,onClick,badge=0}) => (
+  <button onClick={onClick} className={`w-full flex items-center p-3 rounded ${active?'bg-blue-600/20 text-blue-300':'hover:bg-gray-800 text-gray-400'}`}>
+    {icon}<span className="ml-3 flex-grow">{text}</span>{badge>0&&<span className="bg-red-500 rounded-full px-2 text-xs">{badge}</span>}
+  </button>
+);
+
+const Card = ({children}) =>(<div className="bg-gray-800/50 rounded-xl shadow-lg border border-gray-700/50 mb-6">{children}</div>);
+const CardHeader = ({children}) =>(<div className="p-4 border-b border-gray-700 flex justify-between items-center">{children}</div>);
+
+const DashboardView = ({status,health,config,onAction,onConfig}) => (
+  <div className="space-y-6">
+    <Card>
+      <CardHeader>
+        <h2 className="font-semibold text-xl">Protocol Status</h2>
+        <div className={`${status.isPaused?'bg-red-500/20 text-red-400':'bg-green-500/20 text-green-400'} px-3 py-1 rounded flex items-center text-sm`}>
+          {status.isPaused?<ShieldOff className="mr-1"/>:<ShieldCheck className="mr-1"/>}{status.isPaused?'Paused':'Active'}
+        </div>
+      </CardHeader>
+      <div className="p-6 grid grid-cols-1 sm:grid-cols-3 text-center gap-4">
+        <div><p className="text-sm text-gray-400">TVL</p><p className="text-3xl">{formatCurrency(health.totalValueLockedUSD)}</p></div>
+        <div><p className="text-sm text-gray-400">Debt</p><p className="text-3xl">{formatCurrency(health.totalDebt,0)}</p></div>
+        <div><p className="text-sm text-gray-400">Global Ratio</p><p className="text-3xl">{parseFloat(health.globalCollateralizationRatio).toFixed(2)}%</p></div>
+      </div>
+    </Card>
+    <div className="grid md:grid-cols-2 gap-6">
+      <Card>
+        <CardHeader><h2 className="text-xl">Emergency Controls</h2></CardHeader>
+        <div className="p-6 flex space-x-4">
+          <AdminButton icon={<Power/>} text="Pause" className="bg-red-600" onClick={()=>onAction('pause-protocol')} disabled={status.isPaused}/>
+          <AdminButton icon={<Play/>} text="Resume" className="bg-green-600" onClick={()=>onAction('resume-protocol')} disabled={!status.isPaused}/>
+        </div>
+      </Card>
+      <Card>
+        <CardHeader><h2 className="text-xl">Auto-Mint Config</h2><div className={`${config.isEnabled?'bg-green-500/20 text-green-400':'bg-gray-500/20 text-gray-400'} px-3 py-1 rounded text-sm flex items-center`}><Zap className="mr-1"/>{config.isEnabled?'Enabled':'Disabled'}</div></CardHeader>
+        <div className="p-6 grid grid-cols-2 gap-4 text-sm">
+          <div><p className="text-gray-400">Base Reward</p><p>{formatNumber(config.baseReward)}</p></div>
+          <div><p className="text-gray-400">Bonus %</p><p>{config.bonusMultiplier}%</p></div>
+          <div><p className="text-gray-400">Min Hold</p><p>{config.minHoldTime/86400}d</p></div>
+          <div><p className="text-gray-400">Collateral Req</p><p>{config.collateralRequirement}%</p></div>
+        </div>
+        <div className="p-6 flex space-x-4">
+          <AdminButton icon={<Settings/>} text="Configure" onClick={onConfig}/>
+          <AdminButton icon={config.isEnabled?<XCircle/>:<CheckCircle/>} text={config.isEnabled?'Disable':'Enable'} onClick={()=>onAction('toggle-automint',{enabled:!config.isEnabled})}/>
+        </div>
+      </Card>
+    </div>
+  </div>
+);
+
+const PendingRequestsView = ({requests,onAction}) => (
+  <Card><CardHeader><h2>Pending ({requests.length})</h2></CardHeader>
+    <div className="divide-y divide-gray-700">{requests.length>0?requests.map(r=>(
+      <div key={r.id} className="p-4 flex justify-between items-center">
+        <div><p className="font-semibold">{formatNumber(r.mint_amount)} tGHSX</p><p className="text-xs text-gray-400 font-mono">{r.user_id}</p></div>
+        <div className="flex space-x-2">
+          <AdminButton icon={<CheckCircle/>} text="Approve" className="bg-green-600 text-xs" onClick={()=>onAction('approve-mint',{requestId:r.id})}/>
+          <AdminButton icon={<XCircle/>} text="Decline" className="bg-red-600 text-xs" onClick={()=>onAction('decline-mint',{requestId:r.id})}/>
+        </div>
+      </div>)):<p className="p-6 text-center text-gray-500">No requests.</p>}</n    </div></Card>
+);
+
+const AtRiskVaultsView = ({vaults,onAction}) => (
+  <Card><CardHeader><h2>At-Risk ({vaults.length})</h2></CardHeader>
+    <div className="divide-y divide-gray-700">{vaults.length>0?vaults.map(v=>(
+      <div key={v.wallet_address} className="p-4 flex justify-between items-center">
+        <div><p className="font-mono font-semibold text-white">{v.wallet_address}</p><p className="text-sm text-amber-400">Ratio: {v.collateralization_ratio}</p></div>
+        <AdminButton icon={<AlertTriangle/>} text="Liquidate" className="bg-amber-600" onClick={()=>onAction('liquidate',{wallet:v.wallet_address})}/>
+      </div>)):<p className="p-6 text-center text-gray-500">No vaults.</p>}</n    </div></Card>
+);
+
+const AutoMintConfigModal = ({config,onClose,onSave}) => {
+  const [cfg,setCfg]=useState({
+    baseReward:config.baseReward,bonusMultiplier:config.bonusMultiplier,
+    minHoldTime:config.minHoldTime,collateralRequirement:config.collateralRequirement
+  });
+  const change=(e)=>setCfg({...cfg,[e.target.name]:e.target.value});
+  return (<div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="bg-gray-800 rounded-lg w-full max-w-lg p-6" onClick={e=>e.stopPropagation()}>
+      <h3 className="font-semibold text-xl mb-4">Configure Auto-Mint</h3>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        {['baseReward','bonusMultiplier','minHoldTime','collateralRequirement'].map(field=>(
+          <div key={field}>
+            <label className="text-sm text-gray-300 mb-1 block">{field}</label>
+            <input name={field} type="number" value={cfg[field]} onChange={change} className="w-full bg-gray-900 border border-gray-600 rounded p-2"/>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-end space-x-3">
+        <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded">Cancel</button>
+        <button onClick={()=>onSave({
+          baseReward:parseFloat(cfg.baseReward),bonusMultiplier:parseInt(cfg.bonusMultiplier),
+          minHoldTime:parseInt(cfg.minHoldTime),collateralRequirement:parseInt(cfg.collateralRequirement)
+        })} className="px-4 py-2 bg-blue-600 rounded">Save</button>
+      </div>
+    </div>
+  </div>);
+};
+
+const AdminButton = ({icon,text,onClick,className='',disabled=false})=>
+  <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center px-4 py-2 rounded text-sm font-semibold ${className} ${disabled?'opacity-50':''}`}>
+    {icon}<span className="ml-2">{text}</span>
+  </button>;
+
+const LoadingSpinner = ()=><div className="flex items-center justify-center min-h-screen"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
+const ErrorMessage = ({message,onRetry})=><div className="flex items-center justify-center min-h-screen"><div className="bg-gray-800 p-8 rounded text-center"><AlertTriangle className="w-12 h-12 text-red-500 mx-auto"/><h2 className="mt-4 text-2xl font-bold text-white">Error</h2><p className="text-gray-400 mt-2">{message}</p><button onClick={onRetry} className="mt-4 px-4 py-2 bg-blue-600 rounded">Retry</button></div></div>;
+const AuthWall = ({message})=><div className="flex items-center justify-center min-h-screen"><div className="bg-gray-800 p-8 rounded text-center"><Shield className="w-12 h-12 text-blue-500 mx-auto"/><h2 className="mt-4 text-2xl font-bold text-white">Auth Required</h2><p className="text-gray-400 mt-2">{message}</p></div></div>;
+nrender.com'; 
 const VAULT_ADDRESS = '0xF681Ba510d3C93A49a7AB2d02d9697BB2B0091FE';
 const AMOY_CHAIN_ID = '0x13882'; // 80002 in hex
 
