@@ -51,15 +51,13 @@ export default function AdminPage() {
                 const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
                 const network = await web3Provider.getNetwork();
 
-                // FIX: Network Check
-                if (network.chainId !== 80002) { // 80002 is the Amoy chainId
+                if (network.chainId !== 80002) { 
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
                             params: [{ chainId: AMOY_CHAIN_ID }],
                         });
                     } catch (switchError) {
-                        // This error code indicates that the chain has not been added to MetaMask.
                         if (switchError.code === 4902) {
                             await window.ethereum.request({
                                 method: 'wallet_addEthereumChain',
@@ -102,7 +100,6 @@ export default function AdminPage() {
         try {
             const adminHeaders = { 'Authorization': `Bearer ${authToken}` };
 
-            // FIX: Fetch real pending requests
             const [statusRes, healthRes, automintRes, liquidationsRes, pendingRes] = await Promise.all([
                 fetch(`${API_BASE_URL}/admin/status`, { headers: adminHeaders }),
                 fetch(`${API_BASE_URL}/protocol/health`),
@@ -110,19 +107,12 @@ export default function AdminPage() {
                 fetch(`${API_BASE_URL}/liquidations/at-risk`, { headers: adminHeaders }),
                 fetch(`${API_BASE_URL}/admin/pending-requests`, { headers: adminHeaders }),
             ]);
-
-            // FIX: Add logging for debugging API responses
+            
             const statusData = await statusRes.json();
             const healthData = await healthRes.json();
             const automintData = await automintRes.json();
             const liquidationsData = await liquidationsRes.json();
             const pendingData = await pendingRes.json();
-            
-            console.log("API Response - Status:", statusData);
-            console.log("API Response - Health:", healthData);
-            console.log("API Response - AutoMint Config:", automintData);
-            console.log("API Response - At-Risk Vaults:", liquidationsData);
-            console.log("API Response - Pending Requests:", pendingData);
 
             if (!statusRes.ok || !healthRes.ok || !automintRes.ok || !liquidationsRes.ok || !pendingRes.ok) {
                 throw new Error('Failed to fetch admin data. You may not have admin privileges or the server may be down.');
@@ -150,6 +140,10 @@ export default function AdminPage() {
 
     const handleAdminAction = async (action, payload) => {
         console.log(`Executing admin action: ${action}`, payload);
+        if (!window.confirm(`Are you sure you want to ${action.replace('-', ' ')}? This will send an on-chain transaction.`)) {
+            return;
+        }
+
         const adminHeaders = { 
             'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
@@ -160,11 +154,11 @@ export default function AdminPage() {
         let body = payload ? JSON.stringify(payload) : null;
 
         switch(action) {
-            case 'pause':
+            case 'pause-protocol': // FIX: More descriptive action name
                 endpoint = '/admin/pause';
                 body = null;
                 break;
-            case 'unpause':
+            case 'resume-protocol': // FIX: New action for unpausing
                 endpoint = '/admin/unpause';
                 body = null;
                 break;
@@ -188,7 +182,7 @@ export default function AdminPage() {
                 throw new Error(result.detail || 'Admin action failed.');
             }
 
-            alert(`Success: ${result.message || 'Action completed.'}`);
+            alert(`Success: ${result.message || 'Action completed.'} Transaction hash: ${result.transactionHash}`);
             fetchData(); // Refresh data after action
         } catch (err) {
             console.error(`Failed to execute admin action "${action}":`, err);
@@ -267,7 +261,7 @@ const Footer = () => (
     <footer className="py-6 border-t border-gray-800 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-400">
             <div className="flex justify-center space-x-6 mb-4">
-                <a href="https://github.com/valorm/tghsx" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Github /></a>
+                 <a href="https://github.com/valorm/tghsx" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Github /></a>
                 <a href="https://t.me/tghsstablecoin" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Send /></a>
                 <a href="https://discord.com/invite/NPtrctnJhu" target="_blank" rel="noopener noreferrer" className="hover:text-white"><MessageSquare /></a>
                 <a href="https://x.com/tokenGHC" target="_blank" rel="noopener noreferrer" className="hover:text-white"><Twitter /></a>
@@ -310,8 +304,9 @@ const DashboardView = ({ protocolStatus, protocolHealth, autoMintConfig, onAdmin
             <Card>
                 <CardHeader><h2 className="text-xl font-semibold">⚙️ Emergency Controls</h2></CardHeader>
                 <div className="p-6 flex space-x-4">
-                    <AdminButton icon={<Power />} text="Pause Protocol" className="bg-red-600 hover:bg-red-700" onClick={() => onAdminAction('pause')} />
-                    <AdminButton icon={<Play />} text="Resume Protocol" className="bg-green-600 hover:bg-green-700" onClick={() => onAdminAction('unpause')} />
+                    {/* FIX: Use more descriptive action names and disable buttons based on state */}
+                    <AdminButton icon={<Power />} text="Pause Protocol" className="bg-red-600 hover:bg-red-700" onClick={() => onAdminAction('pause-protocol')} disabled={protocolStatus.isPaused} />
+                    <AdminButton icon={<Play />} text="Resume Protocol" className="bg-green-600 hover:bg-green-700" onClick={() => onAdminAction('resume-protocol')} disabled={!protocolStatus.isPaused} />
                 </div>
             </Card>
             <Card>
@@ -324,7 +319,7 @@ const DashboardView = ({ protocolStatus, protocolHealth, autoMintConfig, onAdmin
                 </CardHeader>
                 <div className="p-6">
                     <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                        <ConfigItem label="Base Reward" value={formatNumber(autoMintConfig.baseReward / 1e6)} />
+                        <ConfigItem label="Base Reward" value={formatNumber(autoMintConfig.baseReward)} />
                         <ConfigItem label="Bonus Multiplier" value={`${autoMintConfig.bonusMultiplier}%`} />
                         <ConfigItem label="Min Hold Time" value={`${autoMintConfig.minHoldTime / 86400} days`} />
                         <ConfigItem label="Collateral Req." value={`${autoMintConfig.collateralRequirement}%`} />
@@ -378,10 +373,9 @@ const AtRiskVaultsView = ({ vaults, onAdminAction }) => (
     </Card>
 );
 
-// FIX: Handle precision units correctly in the modal
 const AutoMintConfigModal = ({ currentConfig, onClose, onSave }) => {
     const [config, setConfig] = useState({
-        baseReward: (currentConfig.baseReward / 1e6) || 0,
+        baseReward: currentConfig.baseReward || 0,
         bonusMultiplier: currentConfig.bonusMultiplier || 0,
         minHoldTime: currentConfig.minHoldTime || 0,
         collateralRequirement: currentConfig.collateralRequirement || 0
@@ -394,7 +388,7 @@ const AutoMintConfigModal = ({ currentConfig, onClose, onSave }) => {
 
     const handleSave = () => {
         const newConfig = {
-            baseReward: Math.round(parseFloat(config.baseReward) * 1e6),
+            baseReward: parseFloat(config.baseReward),
             bonusMultiplier: parseInt(config.bonusMultiplier, 10),
             minHoldTime: parseInt(config.minHoldTime, 10),
             collateralRequirement: parseInt(config.collateralRequirement, 10)
@@ -426,7 +420,7 @@ const AutoMintConfigModal = ({ currentConfig, onClose, onSave }) => {
 const Card = ({ children }) => <div className="bg-gray-800/50 rounded-xl shadow-lg border border-gray-700/50">{children}</div>;
 const CardHeader = ({ children }) => <div className="p-4 border-b border-gray-700 flex justify-between items-center">{children}</div>;
 const InfoBox = ({ title, value, subtitle }) => (<div><p className="text-sm text-gray-400">{title}</p><p className="text-3xl font-bold text-white">{value}</p>{subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}</div>);
-const AdminButton = ({ icon, text, onClick, className = '' }) => (<button onClick={onClick} className={`w-full flex items-center justify-center px-4 py-2 rounded-md text-sm font-semibold transition-colors ${className || 'bg-blue-600 hover:bg-blue-700'}`}>{icon}<span className="ml-2">{text}</span></button>);
+const AdminButton = ({ icon, text, onClick, className = '', disabled = false }) => (<button onClick={onClick} disabled={disabled} className={`w-full flex items-center justify-center px-4 py-2 rounded-md text-sm font-semibold transition-colors ${className || 'bg-blue-600 hover:bg-blue-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>{icon}<span className="ml-2">{text}</span></button>);
 const ConfigItem = ({ label, value }) => (<div><p className="text-xs text-gray-400">{label}</p><p className="font-semibold">{value}</p></div>);
 const ModalInput = ({ label, ...props }) => (<div><label className="block text-sm font-medium text-gray-300 mb-1">{label}</label><input {...props} className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" /></div>);
 const LoadingSpinner = () => <div className="flex items-center justify-center min-h-screen"><RefreshCw className="w-12 h-12 text-blue-500 animate-spin" /></div>;
